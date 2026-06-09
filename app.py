@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string, abort
 import datetime
 import json
 import os
@@ -6,6 +6,8 @@ import os
 app = Flask(__name__)
 
 LOG_FILE = "visitors.log"
+# Set a secret password – change this to something only you know!
+SECRET_PASSWORD = "MySecretViewKey123"
 
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -58,14 +60,9 @@ HTML_PAGE = """
 """
 
 def get_real_ip():
-    """Get the real visitor IP from proxy headers."""
-    # Render sets X-Forwarded-For with the original client IP
     forwarded = request.headers.get('X-Forwarded-For')
     if forwarded:
-        # X-Forwarded-For may contain multiple IPs (client, proxy1, proxy2...)
-        # The first one is the original client
         return forwarded.split(',')[0].strip()
-    # Fallback
     return request.remote_addr
 
 @app.route('/')
@@ -76,7 +73,6 @@ def index():
         "referer": request.headers.get('Referer'),
         "accept_language": request.headers.get('Accept-Language'),
         "timestamp": datetime.datetime.utcnow().isoformat(),
-        "all_headers": dict(request.headers)  # Log everything for debugging
     }
     with open(LOG_FILE, "a") as f:
         f.write(json.dumps(log_entry) + "\n")
@@ -92,6 +88,20 @@ def log_fingerprint():
     with open(LOG_FILE, "a") as f:
         f.write(json.dumps(entry) + "\n")
     return "ok"
+
+# NEW: secret log viewer
+@app.route('/viewlog')
+def view_log():
+    password = request.args.get('key', '')
+    if password != SECRET_PASSWORD:
+        abort(403)  # Forbidden
+    try:
+        with open(LOG_FILE, "r") as f:
+            contents = f.read()
+    except FileNotFoundError:
+        contents = "No visitors yet."
+    # Return as plain text for easy copying
+    return f"<pre>{contents}</pre>"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
